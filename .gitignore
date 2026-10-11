@@ -1,2 +1,7 @@
 dist/
 *.exe
+*.test
+*.out
+coverage.txt
+coverage.html
+*.coverprofile

@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Race test
+        if: matrix.os == 'ubuntu-latest'
+        run: go test -race ./...
+      - name: gofmt
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: Smoke test
+        if: matrix.os == 'ubuntu-latest'
+        run: go run . 127.0.0.1 --json | python3 -c "import json,sys; d=json.load(sys.stdin); assert d and d[0]['alive']"
+
+  cross-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build all targets
+        run: make all
+      - name: List sizes
+        run: ls -l dist
+
+  no-dashes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject en and em dashes
+        env:
+          LC_ALL: C.UTF-8
+        run: |
+          if git grep -nI -P '\x{2013}|\x{2014}' -- . ':!*.png' ':!*.gz'; then
+            echo "Found en/em dashes above; use ASCII hyphens."
+            exit 1
+          fi
