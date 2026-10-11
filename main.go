@@ -149,7 +149,11 @@ func runScan(args []string) error {
 		w = output.NewTable(os.Stdout, !*noColor && output.ColorEnabled(os.Stdout))
 	}
 
-	progress := tableMode && isTTY(os.Stderr)
+	if ok, hint := probe.PingAvailable(); !ok && hint != "" && (tableMode || isTTY(os.Stderr)) {
+		fmt.Fprintln(os.Stderr, "sonar: note: "+hint)
+	}
+
+	progress := tableMode && isTTY(os.Stderr) && output.ColorEnabled(os.Stderr)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

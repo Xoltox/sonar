@@ -138,3 +138,36 @@ func TestCancelWhileSemaphoreHeld(t *testing.T) {
 	}
 	<-sem
 }
+
+func TestDialPortRefusedFast(t *testing.T) {
+	start := time.Now()
+	_, err := dialPort(context.Background(), loopback, closedPort(t), 2*time.Second)
+	if !isRefused(err) {
+		t.Fatalf("want refused, got %v", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("refusal took %v", d)
+	}
+}
+
+func TestDialPortReleasesSlots(t *testing.T) {
+	SetMaxDials(4)
+	defer SetMaxDials(defaultMaxDials)
+	port, stop := listenAccept(t)
+	defer stop()
+	for i := 0; i < 20; i++ {
+		c, err := dialPort(context.Background(), loopback, port, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Close()
+	}
+	// Every slot must be free again.
+	deadline := time.Now().Add(2 * time.Second)
+	for len(socketSem()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d slots still held", len(socketSem()))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

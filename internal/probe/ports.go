@@ -13,6 +13,10 @@ var DefaultPorts = []int{21, 22, 23, 53, 80, 135, 139, 443, 445, 3389, 5900, 808
 // AlivePorts are the ports probed to decide whether a host is up.
 var AlivePorts = []int{445, 80, 22, 3389, 443, 139}
 
+// LocalAlivePorts is the shorter alive list for hosts on a directly attached
+// subnet, where ICMP and ARP run alongside and socket pressure matters.
+var LocalAlivePorts = []int{445, 80, 22}
+
 // ParsePorts parses "none", "default", or a comma list of ports and ranges.
 func ParsePorts(s string) ([]int, error) {
 	s = strings.TrimSpace(s)

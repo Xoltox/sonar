@@ -3,6 +3,7 @@ package target
 import (
 	"net"
 	"net/netip"
+	"strings"
 )
 
 // Local is one IPv4 interface subnet on this machine.
@@ -14,10 +15,53 @@ type Local struct {
 
 var linkLocal = netip.MustParsePrefix("169.254.0.0/16")
 
-// LocalSubnets returns every up, non-loopback IPv4 interface subnet.
+var (
+	virtualContains = []string{
+		"vethernet", "wsl", "hyper-v", "virtualbox", "vmware", "vmnet", "docker",
+		"virbr", "vboxnet", "tailscale", "npcap loopback", "awdl",
+	}
+	virtualPrefixes = []string{
+		"br-", "veth", "utun", "tun", "tap", "zt", "wg", "bridge", "llw", "anpi", "ap1",
+	}
+)
+
+// isVirtual reports whether an interface looks like a virtual adapter
+// (VM host-only, container bridge, VPN tunnel) rather than a real LAN. Only the name is used: a MAC OUI test would drop
+// the real NIC when running inside a VM guest.
+func isVirtual(name string) bool {
+	n := strings.ToLower(name)
+	for _, s := range virtualContains {
+		if strings.Contains(n, s) {
+			return true
+		}
+	}
+	for _, p := range virtualPrefixes {
+		if strings.HasPrefix(n, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// LocalSubnets returns the up, non-loopback, non-virtual IPv4 interface
+// subnets. If filtering removes everything it falls back to LocalSubnetsAll.
+func LocalSubnets() ([]Local, error) {
+	out, err := localSubnets(true)
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	return localSubnets(false)
+}
+
+// LocalSubnetsAll returns every up, non-loopback IPv4 interface subnet,
+// including virtual adapters.
 // Link-local and /32 addresses are skipped, and prefixes shorter than /16
 // are narrowed to the /24 containing the address.
-func LocalSubnets() ([]Local, error) {
+func LocalSubnetsAll() ([]Local, error) {
+	return localSubnets(false)
+}
+
+func localSubnets(skipVirtual bool) ([]Local, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
@@ -26,6 +70,9 @@ func LocalSubnets() ([]Local, error) {
 	seen := map[netip.Prefix]bool{}
 	for _, ifc := range ifaces {
 		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if skipVirtual && isVirtual(ifc.Name) {
 			continue
 		}
 		addrs, err := ifc.Addrs()
