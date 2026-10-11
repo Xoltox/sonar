@@ -307,15 +307,16 @@ func TestResultJSONOmitsNBMAC(t *testing.T) {
 }
 
 func TestPickName(t *testing.T) {
-	tests := []struct{ dns, nb, name, src string }{
-		{"a.lan", "NB", "a.lan", "dns"},
-		{"a.lan", "", "a.lan", "dns"},
-		{"", "NB", "NB", "netbios"},
-		{"", "", "", ""},
+	tests := []struct{ dns, nb, mdns, name, src string }{
+		{"a.lan", "NB", "m.local", "a.lan", "dns"},
+		{"a.lan", "", "", "a.lan", "dns"},
+		{"", "NB", "m.local", "NB", "netbios"},
+		{"", "", "m.local", "m.local", "mdns"},
+		{"", "", "", "", ""},
 	}
 	for _, tc := range tests {
-		if name, src := pickName(tc.dns, tc.nb); name != tc.name || src != tc.src {
-			t.Errorf("pickName(%q, %q) = %q, %q; want %q, %q", tc.dns, tc.nb, name, src, tc.name, tc.src)
+		if name, src := pickName(tc.dns, tc.nb, tc.mdns); name != tc.name || src != tc.src {
+			t.Errorf("pickName(%q, %q, %q) = %q, %q; want %q, %q", tc.dns, tc.nb, tc.mdns, name, src, tc.name, tc.src)
 		}
 	}
 }

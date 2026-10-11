@@ -53,6 +53,7 @@ var enrichers = []Enricher{
 	portScan,
 	macLookup,
 	hostname,
+	httpTitle,
 }
 
 func icmpAlive(ctx context.Context, addr netip.Addr, o Options) (Proof, bool) {
@@ -116,23 +117,25 @@ func macLookup(ctx context.Context, r *Result, o Options) {
 	}
 }
 
-// pickName chooses the display name: reverse DNS beats NetBIOS.
-func pickName(dns, nb string) (name, src string) {
-	if dns != "" {
+// pickName chooses the display name: reverse DNS beats NetBIOS beats mDNS.
+func pickName(dns, nb, mdns string) (name, src string) {
+	switch {
+	case dns != "":
 		return dns, "dns"
-	}
-	if nb != "" {
+	case nb != "":
 		return nb, "netbios"
+	case mdns != "":
+		return mdns, "mdns"
 	}
 	return "", ""
 }
 
-// hostname resolves reverse DNS and NetBIOS in parallel. The NetBIOS MAC is
-// only recorded as a fallback (nbMAC); ARP/neighbour data always wins.
+// hostname resolves reverse DNS, NetBIOS and mDNS in parallel. The NetBIOS MAC
+// is only recorded as a fallback (nbMAC); ARP/neighbour data always wins.
 func hostname(ctx context.Context, r *Result, o Options) {
-	var dns, nb, nbMAC string
+	var dns, nb, nbMAC, mdns string
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		dns = probe.ReverseDNS(ctx, r.IP, o.Timeout)
@@ -141,9 +144,19 @@ func hostname(ctx context.Context, r *Result, o Options) {
 		defer wg.Done()
 		nb, nbMAC = probe.NetBIOSName(ctx, r.IP, o.Timeout)
 	}()
+	go func() {
+		defer wg.Done()
+		mdns = probe.MDNSName(ctx, r.IP, o.Timeout)
+	}()
 	wg.Wait()
-	r.Hostname, r.NameSrc = pickName(dns, nb)
+	r.Hostname, r.NameSrc = pickName(dns, nb, mdns)
 	r.nbMAC = nbMAC
+}
+
+// httpTitle fetches the title of the host's web page, bounded by the probe
+// timeout (the probe applies its own 1.5s overall cap).
+func httpTitle(ctx context.Context, r *Result, o Options) {
+	r.HTTPTitle = probe.HTTPTitle(ctx, r.IP, o.Timeout)
 }
 
 func portScan(ctx context.Context, r *Result, o Options) {

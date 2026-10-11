@@ -5,15 +5,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/netip"
+	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/Xoltox/sonar/internal/output"
 	"github.com/Xoltox/sonar/internal/probe"
 	"github.com/Xoltox/sonar/internal/scan"
 	"github.com/Xoltox/sonar/internal/target"
+	"github.com/Xoltox/sonar/internal/wol"
 )
 
 var version = "dev"
@@ -22,6 +24,9 @@ const usageText = `sonar - fast LAN scanner
 
 Usage:
   sonar [flags] [target ...]
+  sonar serve [addr] [--open]
+  sonar ui
+  sonar wol <MAC> [MAC ...]
   sonar version
   sonar help
 
@@ -37,12 +42,26 @@ Flags:
   --csv                 CSV output
   --no-color            disable colored output
   --force               allow scanning more than a /16
+  --serve addr          start the web UI instead of scanning (uses --timeout, --concurrency, --ports)
+  --open                open the web UI in the default browser (serve, --serve)
+
+Web UI:
+  sonar serve           web UI on 127.0.0.1:8080 (":8080" also binds loopback)
+  sonar serve 0.0.0.0:8080
+                        bind explicitly; the UI has no auth, so anyone who can
+                        reach the address can run scans and send Wake-on-LAN
+  sonar ui              web UI on a random loopback port, opens the browser
+  sonar wol AA:BB:CC:DD:EE:FF
+                        send a Wake-on-LAN magic packet
 
 Examples:
   sonar
   sonar 192.168.1.0/24
   sonar --ports 22,80,443 10.0.0.1-10.0.0.50
   sonar --json 192.168.1.0/24 > scan.json
+  sonar serve --open
+  sonar --serve :0 --open
+  sonar wol AA:BB:CC:DD:EE:FF
 `
 
 func main() {
@@ -55,10 +74,23 @@ func main() {
 		case "help", "-h", "--help", "-help":
 			fmt.Print(usageText)
 			return
-		case "wol", "serve":
-			fmt.Fprintf(os.Stderr, "sonar: %s: not implemented yet\n", args[0])
-			os.Exit(2)
+		case "wol":
+			os.Exit(runWOL(args[1:]))
+		case "serve", "ui":
+			if err := runServe(args[1:], args[0] == "ui"); err != nil {
+				fmt.Fprintln(os.Stderr, "sonar: "+err.Error())
+				os.Exit(1)
+			}
+			return
 		}
+	} else if isDoubleClick() {
+		if err := runDoubleClick(); err != nil {
+			fmt.Fprintln(os.Stderr, "sonar: "+err.Error())
+			fmt.Fprintln(os.Stderr, "press Enter to close")
+			fmt.Scanln()
+			os.Exit(1)
+		}
+		return
 	}
 	if err := runScan(args); err != nil {
 		fmt.Fprintln(os.Stderr, "sonar: "+err.Error())
@@ -78,61 +110,38 @@ func runScan(args []string) error {
 	asCSV := fs.Bool("csv", false, "CSV output")
 	noColor := fs.Bool("no-color", false, "disable color")
 	force := fs.Bool("force", false, "allow scans larger than a /16")
-	var positional []string
-	rest := args
-	for {
-		if err := fs.Parse(rest); err != nil {
-			if err == flag.ErrHelp {
-				fmt.Print(usageText)
-				return nil
-			}
-			return fmt.Errorf("%v\nrun 'sonar -h' for usage", err)
-		}
-		if fs.NArg() == 0 {
-			break
-		}
-		if i := len(rest) - fs.NArg() - 1; i >= 0 && rest[i] == "--" {
-			positional = append(positional, fs.Args()...)
-			break
-		}
-		positional = append(positional, fs.Arg(0))
-		rest = fs.Args()[1:]
+	serveAddr := fs.String("serve", "", "start the web UI on addr")
+	open := fs.Bool("open", false, "open the browser")
+	positional, help, err := parseFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if help {
+		fmt.Print(usageText)
+		return nil
+	}
+	serving := false
+	fs.Visit(func(f *flag.Flag) { serving = serving || f.Name == "serve" })
+	if serving {
+		return startWeb(*serveAddr, *open, *timeout, *concurrency, *portSpec, nil)
 	}
 	if *asJSON && *asCSV {
 		return fmt.Errorf("--json and --csv cannot be used together")
 	}
-	maxDials := 512
-	if lim, _ := probe.RaiseFileLimit(); lim > 0 && int(lim/2) < maxDials {
-		maxDials = int(lim / 2)
-	}
-	probe.SetMaxDials(maxDials)
+	setupLimits()
 	ports, err := probe.ParsePorts(*portSpec)
 	if err != nil {
 		return err
 	}
 
-	locals, err := target.LocalSubnets()
-	if err != nil && len(positional) == 0 {
-		return err
-	}
-
-	var targets []netip.Addr
+	targets, locals, desc, err := target.Resolve(positional, *force)
 	if len(positional) == 0 {
-		if len(locals) == 0 {
-			return fmt.Errorf("no local subnets found, give a target")
+		for _, d := range desc {
+			fmt.Fprintf(os.Stderr, "Scanning %s\n", d)
 		}
-		for _, l := range locals {
-			fmt.Fprintf(os.Stderr, "Scanning %s (%s)\n", l.Prefix.Masked(), l.Iface)
-		}
-		if n := target.CountHosts(locals); n > target.MaxHostsDefault && !*force {
-			return fmt.Errorf("local subnets expand to %d hosts, over the limit of %d; use --force to scan anyway", n, target.MaxHostsDefault)
-		}
-		targets = target.Hosts(locals)
-	} else {
-		targets, err = target.ParseAll(positional, *force)
-		if err != nil {
-			return err
-		}
+	}
+	if err != nil {
+		return err
 	}
 	if len(targets) == 0 {
 		return fmt.Errorf("no targets")
@@ -208,4 +217,22 @@ func isTTY(f *os.File) bool {
 
 func clearLine(w io.Writer) {
 	fmt.Fprint(w, "\r\x1b[2K")
+}
+
+func runWOL(macs []string) int {
+	if len(macs) == 0 {
+		fmt.Fprintln(os.Stderr, "sonar: wol: give at least one MAC address")
+		return 1
+	}
+	code := 0
+	for _, m := range macs {
+		if err := wol.Send(m); err != nil {
+			fmt.Fprintln(os.Stderr, "sonar: wol: "+err.Error())
+			code = 1
+			continue
+		}
+		hw, _ := net.ParseMAC(strings.TrimSpace(m))
+		fmt.Printf("sent magic packet to %s\n", strings.ToUpper(hw.String()))
+	}
+	return code
 }

@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="sonar-token" content="__SONAR_TOKEN__">
+<title>Sonar - LAN scanner</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230f766e'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%235eead4' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%235eead4'/%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --panel-2: #f8fafb;
+  --text: #0f1b24;
+  --muted: #5b6b78;
+  --line: #e1e7ec;
+  --accent: #0f766e;
+  --accent-2: #14b8a6;
+  --accent-text: #ffffff;
+  --up: #16a34a;
+  --down: #94a3b8;
+  --warn: #b45309;
+  --danger: #b91c1c;
+  --chip: #e6f4f2;
+  --chip-text: #0b5d56;
+  --shadow: 0 1px 2px rgba(15,27,36,.06), 0 8px 24px rgba(15,27,36,.06);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1218;
+    --panel: #121b23;
+    --panel-2: #0f171e;
+    --text: #e6edf3;
+    --muted: #8b9cab;
+    --line: #223039;
+    --accent: #14b8a6;
+    --accent-2: #5eead4;
+    --accent-text: #04201d;
+    --up: #34d399;
+    --down: #5b6b78;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --chip: #14312f;
+    --chip-text: #7be3d6;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+    --bg: #0b1218;
+    --panel: #121b23;
+    --panel-2: #0f171e;
+    --text: #e6edf3;
+    --muted: #8b9cab;
+    --line: #223039;
+    --accent: #14b8a6;
+    --accent-2: #5eead4;
+    --accent-text: #04201d;
+    --up: #34d399;
+    --down: #5b6b78;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --chip: #14312f;
+    --chip-text: #7be3d6;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 var(--sans);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
+header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand svg { width: 34px; height: 34px; flex: none; }
+.brand h1 { font-size: 22px; letter-spacing: .2px; margin: 0; font-weight: 700; }
+.ver { font: 12px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.tag { color: var(--muted); margin-left: auto; font-size: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+form.controls { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) auto auto; gap: 14px; align-items: end; padding: 16px; }
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field label, .lbl { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+input[type=text], input[type=search] {
+  width: 100%; height: 40px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  font: 14px var(--mono);
+}
+input::placeholder { color: var(--muted); opacity: .8; }
+:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+input:focus-visible { outline-offset: 0; border-color: var(--accent-2); }
+.toggle { display: flex; align-items: center; gap: 9px; height: 40px; cursor: pointer; user-select: none; white-space: nowrap; }
+.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.toggle .sw { width: 38px; height: 22px; border-radius: 999px; background: var(--down); position: relative; transition: background .15s; flex: none; }
+.toggle .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.toggle input:checked + .sw { background: var(--accent); }
+.toggle input:checked + .sw::after { transform: translateX(16px); }
+.toggle input:focus-visible + .sw { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+button { font: inherit; color: inherit; }
+.primary {
+  height: 40px; min-width: 120px; padding: 0 22px; border: 0; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-text);
+  font-weight: 700; font-size: 15px; letter-spacing: .3px;
+}
+.primary:hover { filter: brightness(1.06); }
+.primary.stop { background: linear-gradient(135deg, #b91c1c, #ef4444); color: #fff; }
+.progress { margin-top: 14px; padding: 14px 16px; }
+.bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 999px; transition: width .12s linear; }
+.bar.busy > i { background-size: 200% 100%; }
+.stats { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 13px; }
+.stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+.stats .state { margin-left: auto; }
+.err { margin-top: 10px; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.err[hidden] { display: none; }
+.tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.tools input[type=search] { max-width: 320px; font-family: var(--sans); }
+.count { color: var(--muted); font-size: 13px; }
+.spacer { flex: 1; }
+.btn {
+  height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.btn:hover { border-color: var(--accent-2); }
+.btn:disabled { opacity: .45; cursor: default; }
+.results { margin-top: 14px; overflow: hidden; }
+.scroll { overflow-x: auto; max-width: 100%; }
+table { width: 100%; border-collapse: collapse; min-width: 980px; }
+th, td { text-align: left; padding: 10px 12px; white-space: nowrap; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); background: var(--panel-2); position: sticky; top: 0; white-space: nowrap; padding: 0; }
+th button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 5px; width: 100%; padding: 10px 12px; cursor: pointer; font-weight: 600; }
+th button:hover { color: var(--text); }
+th button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+th .arr { font-size: 10px; opacity: 0; }
+th[aria-sort] .arr { opacity: 1; color: var(--accent); }
+tbody tr:hover { background: var(--panel-2); }
+tbody tr.fresh { animation: fresh 1.2s ease-out; }
+@keyframes fresh { from { background: color-mix(in srgb, var(--accent-2) 28%, transparent); } to { background: transparent; } }
+td.ip, td.mac, td.rtt { font-family: var(--mono); white-space: nowrap; }
+td.ip { font-weight: 600; }
+td.rtt, td.num { font-variant-numeric: tabular-nums; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--down); vertical-align: middle; }
+.dot.up { background: var(--up); box-shadow: 0 0 0 3px color-mix(in srgb, var(--up) 25%, transparent); }
+.src { margin-left: 6px; font: 10px var(--mono); text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; vertical-align: 1px; }
+.muted { color: var(--muted); }
+.chips { display: flex; gap: 4px; }
+a.chip {
+  font: 12px var(--mono); padding: 1px 7px; border-radius: 6px; background: var(--chip); color: var(--chip-text);
+  text-decoration: none; border: 1px solid transparent;
+}
+a.chip:hover { border-color: var(--accent-2); }
+.title { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acts { display: flex; gap: 4px; }
+.mini { height: 26px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.mini:hover { border-color: var(--accent-2); color: var(--accent); }
+.mini:disabled { opacity: .35; cursor: default; }
+.empty { padding: 44px 16px; text-align: center; color: var(--muted); }
+.empty svg { width: 54px; height: 54px; opacity: .7; margin-bottom: 8px; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 9px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100vw - 32px); }
+.toast.show { opacity: 1; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@keyframes ping { 0% { transform: scale(.3); opacity: .9; } 100% { transform: scale(1); opacity: 0; } }
+.scanning .ping { animation: ping 1.6s ease-out infinite; transform-origin: 16px 16px; }
+.scanning .ping.b { animation-delay: .8s; }
+.ping { opacity: 0; }
+@media (max-width: 860px) {
+  form.controls { grid-template-columns: 1fr 1fr; }
+  form.controls .field.targets { grid-column: 1 / -1; }
+  .tag { display: none; }
+}
+@media (max-width: 520px) {
+  form.controls { grid-template-columns: 1fr; }
+  .primary { width: 100%; }
+  .stats .state { margin-left: 0; }
+  .tools input[type=search] { max-width: none; flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg id="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="14.5" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+        <circle cx="16" cy="16" r="9.5" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity=".6"/>
+        <circle cx="16" cy="16" r="4.5" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity=".35"/>
+        <path d="M16 16 L26.5 8.5" stroke="var(--accent-2)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="16" cy="16" r="2" fill="var(--accent-2)"/>
+        <circle cx="23" cy="10.5" r="1.8" fill="var(--up)"/>
+        <circle class="ping" cx="16" cy="16" r="14" fill="none" stroke="var(--accent-2)" stroke-width="1.5"/>
+        <circle class="ping b" cx="16" cy="16" r="14" fill="none" stroke="var(--accent-2)" stroke-width="1.5"/>
+      </svg>
+      <h1>Sonar</h1>
+      <span class="ver" id="ver">dev</span>
+    </div>
+    <span class="tag">Find every device on your network</span>
+  </header>
+
+  <form class="card controls" id="form" autocomplete="off">
+    <div class="field targets">
+      <label for="targets">Targets</label>
+      <input type="text" id="targets" spellcheck="false" placeholder="auto-detect local subnets">
+    </div>
+    <div class="field">
+      <label for="ports">Ports</label>
+      <input type="text" id="ports" spellcheck="false" value="default" placeholder="default, none, 22,80,8000-8100">
+    </div>
+    <label class="toggle"><input type="checkbox" id="all"><span class="sw"></span><span>Include dead hosts</span></label>
+    <button type="submit" class="primary" id="go">Scan</button>
+  </form>
+
+  <section class="card progress" aria-label="Scan progress">
+    <div class="bar" id="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Scan progress"><i id="fill"></i></div>
+    <div class="stats" aria-live="polite">
+      <span>Scanned <b id="done">0</b> / <b id="total">0</b></span>
+      <span>Up <b id="up">0</b></span>
+      <span>Elapsed <b id="elapsed">0.0s</b></span>
+      <span class="state" id="state">Idle</span>
+    </div>
+    <div class="err" id="err" role="alert" hidden></div>
+  </section>
+
+  <section class="card results">
+    <div class="tools">
+      <label class="sr" for="filter">Filter results</label>
+      <input type="search" id="filter" placeholder="Filter by any column" autocomplete="off">
+      <span class="count" id="count" aria-live="polite">0 hosts</span>
+      <span class="spacer"></span>
+      <button class="btn" id="expJson" type="button" disabled>Export JSON</button>
+      <button class="btn" id="expCsv" type="button" disabled>Export CSV</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr id="head"></tr></thead>
+        <tbody id="body"></tbody>
+      </table>
+      <div class="empty" id="empty">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/><circle cx="16" cy="16" r="2" fill="currentColor"/></svg>
+        <div id="emptyMsg">Press Scan to discover hosts.</div>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var COLS = [
+    { key: "ip", label: "IP" },
+    { key: "alive", label: "Status" },
+    { key: "rtt", label: "RTT" },
+    { key: "hostname", label: "Hostname" },
+    { key: "mac", label: "MAC" },
+    { key: "vendor", label: "Vendor" },
+    { key: "ports", label: "Ports" },
+    { key: "title", label: "HTTP title" },
+    { key: null, label: "Actions" }
+  ];
+  var tmeta = document.querySelector('meta[name="sonar-token"]');
+  var TOKEN = tmeta ? tmeta.content : "";
+  var rows = new Map();
+  var fresh = new Set();
+  var sortKey = "ip", sortDir = 1;
+  var es = null, running = false, started = 0, timer = 0, renderQueued = false;
+  var finished = false;
+
+  function ipNum(ip) {
+    var p = String(ip).split(".");
+    if (p.length !== 4) return 0;
+    return ((+p[0] * 256 + +p[1]) * 256 + +p[2]) * 256 + +p[3];
+  }
+  function sortVal(r, k) {
+    switch (k) {
+      case "ip": return ipNum(r.ip);
+      case "alive": return r.alive ? 1 : 0;
+      case "rtt": return r.alive ? (r.rtt_ns || 0) : Infinity;
+      case "hostname": return (r.hostname || "").toLowerCase();
+      case "mac": return (r.mac || "").toLowerCase();
+      case "vendor": return (r.vendor || "").toLowerCase();
+      case "ports": return (r.ports || []).length;
+      case "title": return (r.http_title || "").toLowerCase();
+    }
+    return 0;
+  }
+  function haystack(r) {
+    return [r.ip, r.alive ? "up" : "down", r.hostname, r.name_src, r.mac, r.vendor,
+      (r.ports || []).join(" "), r.http_title, r.alive_by].join(" ").toLowerCase();
+  }
+  function fmtRTT(ns) {
+    if (!ns) return "-";
+    var ms = ns / 1e6;
+    return ms < 10 ? ms.toFixed(1) + " ms" : Math.round(ms) + " ms";
+  }
+  function fmtElapsed(ms) { return (ms / 1000).toFixed(1) + "s"; }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // Header with sortable columns
+  var head = $("head");
+  COLS.forEach(function (c) {
+    var th = el("th");
+    th.scope = "col";
+    if (c.key) {
+      var b = el("button");
+      b.type = "button";
+      b.appendChild(el("span", "", c.label));
+      b.appendChild(el("span", "arr", "▲"));
+      b.addEventListener("click", function () {
+        if (sortKey === c.key) sortDir = -sortDir; else { sortKey = c.key; sortDir = 1; }
+        render();
+      });
+      th.appendChild(b);
+      th.dataset.key = c.key;
+    } else {
+      var s = el("span", "", c.label);
+      s.style.padding = "10px 12px";
+      s.style.display = "block";
+      th.appendChild(s);
+    }
+    head.appendChild(th);
+  });
+  function updateHead() {
+    Array.prototype.forEach.call(head.children, function (th) {
+      var arr = th.querySelector(".arr");
+      if (th.dataset.key === sortKey) {
+        th.setAttribute("aria-sort", sortDir === 1 ? "ascending" : "descending");
+        arr.textContent = sortDir === 1 ? "▲" : "▼";
+      } else {
+        th.removeAttribute("aria-sort");
+        if (arr) arr.textContent = "▲";
+      }
+    });
+  }
+
+  function portLink(ip, p) {
+    var href = null, title = "", ext = true;
+    switch (p) {
+      case 80: case 8080: href = "http://" + ip + ":" + p; break;
+      case 443: case 8443: href = "https://" + ip + ":" + p; break;
+      case 22: href = "ssh://" + ip; break;
+      case 3389: href = "/api/rdp?ip=" + encodeURIComponent(ip) + "&token=" + encodeURIComponent(TOKEN); title = "Download .rdp file"; ext = false; break;
+      case 445: case 139: href = "smb://" + ip; title = "\\\\" + ip; break;
+      case 5900: href = "vnc://" + ip; break;
+      case 21: href = "ftp://" + ip; break;
+    }
+    if (!href) return el("span", "muted", "");
+    return { href: href, title: title, ext: ext };
+  }
+  function chip(ip, p) {
+    var info = portLink(ip, p);
+    var a = el("a", "chip", String(p));
+    if (info && info.href) {
+      a.href = info.href;
+      if (info.ext) { a.target = "_blank"; a.rel = "noopener noreferrer"; }
+      a.title = info.title || info.href;
+    } else {
+      a.removeAttribute("href");
+      a.title = "Port " + p;
+    }
+    return a;
+  }
+
+  function copy(text, what) {
+    function ok() { toast("Copied " + what); }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(ok, fallback);
+    } else fallback();
+    function fallback() {
+      var t = document.createElement("textarea");
+      t.value = text; t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select();
+      try { document.execCommand("copy"); ok(); } catch (e) { toast("Copy failed"); }
+      document.body.removeChild(t);
+    }
+  }
+  function wake(mac) {
+    fetch("/api/wol", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sonar-Token": TOKEN },
+      body: JSON.stringify({ mac: mac })
+    }).then(function (r) {
+      if (r.status === 204) toast("Wake-on-LAN sent to " + mac);
+      else return r.text().then(function (t) { toast("Wake-on-LAN failed: " + (t.trim() || r.status)); });
+    }, function () { toast("Wake-on-LAN failed: network error"); });
+  }
+
+  function mini(label, title, fn, disabled) {
+    var b = el("button", "mini", label);
+    b.type = "button"; b.title = title; b.setAttribute("aria-label", title);
+    if (disabled) b.disabled = true; else b.addEventListener("click", fn);
+    return b;
+  }
+
+  function buildRow(r) {
+    var tr = el("tr");
+    if (fresh.has(r.ip)) { tr.className = "fresh"; }
+    tr.appendChild(el("td", "ip", r.ip));
+    var st = el("td");
+    var dot = el("span", "dot" + (r.alive ? " up" : ""));
+    dot.title = r.alive ? "Up" + (r.alive_by ? " (" + r.alive_by + ")" : "") : "No response";
+    st.appendChild(dot);
+    st.appendChild(el("span", "sr", r.alive ? "Up" : "Down"));
+    tr.appendChild(st);
+    tr.appendChild(el("td", "rtt", r.alive ? fmtRTT(r.rtt_ns) : "-"));
+    var h = el("td");
+    if (r.hostname) {
+      h.appendChild(document.createTextNode(r.hostname));
+      if (r.name_src) h.appendChild(el("span", "src", r.name_src));
+    } else h.appendChild(el("span", "muted", "-"));
+    tr.appendChild(h);
+    var m = el("td", "mac" + (r.mac ? "" : " muted"), r.mac || "-");
+    tr.appendChild(m);
+    tr.appendChild(el("td", r.vendor ? "" : "muted", r.vendor || "-"));
+    var pt = el("td");
+    var chips = el("div", "chips");
+    (r.ports || []).forEach(function (p) { chips.appendChild(chip(r.ip, p)); });
+    if (!(r.ports || []).length) chips.appendChild(el("span", "muted", "-"));
+    pt.appendChild(chips);
+    tr.appendChild(pt);
+    var tt = el("td", "title" + (r.http_title ? "" : " muted"), r.http_title || "-");
+    if (r.http_title) tt.title = r.http_title;
+    tr.appendChild(tt);
+    var ac = el("td");
+    var box = el("div", "acts");
+    box.appendChild(mini("IP", "Copy IP " + r.ip, function () { copy(r.ip, r.ip); }));
+    box.appendChild(mini("MAC", r.mac ? "Copy MAC " + r.mac : "No MAC known", function () { copy(r.mac, r.mac); }, !r.mac));
+    box.appendChild(mini("WoL", r.mac ? "Send Wake-on-LAN to " + r.mac : "Wake-on-LAN needs a MAC", function () { wake(r.mac); }, !r.mac));
+    ac.appendChild(box);
+    tr.appendChild(ac);
+    return tr;
+  }
+
+  function visibleRows() {
+    var q = $("filter").value.trim().toLowerCase();
+    var list = [];
+    rows.forEach(function (r) { if (!q || haystack(r).indexOf(q) !== -1) list.push(r); });
+    list.sort(function (a, b) {
+      var x = sortVal(a, sortKey), y = sortVal(b, sortKey);
+      if (x < y) return -sortDir;
+      if (x > y) return sortDir;
+      return ipNum(a.ip) - ipNum(b.ip);
+    });
+    return list;
+  }
+
+  function render() {
+    renderQueued = false;
+    updateHead();
+    var list = visibleRows();
+    var body = $("body");
+    var frag = document.createDocumentFragment();
+    list.forEach(function (r) { frag.appendChild(buildRow(r)); });
+    body.replaceChildren(frag);
+    fresh.clear();
+    var total = rows.size;
+    $("count").textContent = list.length === total
+      ? total + (total === 1 ? " host" : " hosts")
+      : list.length + " of " + total + " hosts";
+    $("empty").style.display = list.length ? "none" : "";
+    $("emptyMsg").textContent = total
+      ? "No hosts match the filter."
+      : (running ? "Scanning..." : (finished ? "No hosts found." : "Press Scan to discover hosts."));
+    $("expJson").disabled = $("expCsv").disabled = total === 0;
+  }
+  function queueRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(render);
+  }
+
+  var toastTimer = 0;
+  function toast(msg) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2400);
+  }
+  function showError(msg) {
+    var e = $("err");
+    e.textContent = msg;
+    e.hidden = !msg;
+  }
+
+  function setRunning(on) {
+    running = on;
+    var go = $("go");
+    go.textContent = on ? "Stop" : "Scan";
+    go.classList.toggle("stop", on);
+    $("logo").classList.toggle("scanning", on);
+    $("state").textContent = on ? "Scanning..." : $("state").textContent;
+    if (on) {
+      started = Date.now();
+      clearInterval(timer);
+      timer = setInterval(tick, 100);
+    } else {
+      clearInterval(timer);
+      tick();
+    }
+  }
+  function tick() { $("elapsed").textContent = fmtElapsed(Date.now() - started); }
+  function setProgress(done, total) {
+    $("done").textContent = done;
+    $("total").textContent = total;
+    var pct = total ? Math.min(100, Math.round(done * 100 / total)) : 0;
+    $("fill").style.width = pct + "%";
+    $("bar").setAttribute("aria-valuenow", pct);
+  }
+  function upCount() {
+    var n = 0;
+    rows.forEach(function (r) { if (r.alive) n++; });
+    $("up").textContent = n;
+  }
+
+  function stop(label) {
+    if (es) { es.close(); es = null; }
+    if (running) setRunning(false);
+    if (label) $("state").textContent = label;
+    queueRender();
+  }
+
+  function start() {
+    var targets = $("targets").value.trim();
+    var qs = "targets=" + encodeURIComponent(targets) +
+      "&ports=" + encodeURIComponent($("ports").value.trim()) +
+      "&all=" + ($("all").checked ? "1" : "0");
+    rows.clear(); fresh.clear();
+    finished = false;
+    showError("");
+    setProgress(0, 0);
+    $("up").textContent = "0";
+    setRunning(true);
+    render();
+    var src = new EventSource("/api/scan?" + qs + "&token=" + encodeURIComponent(TOKEN));
+    es = src;
+    var gotDone = false;
+    function on(name, fn) {
+      src.addEventListener(name, function (ev) {
+        var d;
+        try { d = JSON.parse(ev.data); } catch (e) { return; }
+        fn(d);
+      });
+    }
+    on("start", function (d) {
+      setProgress(0, d.total);
+      if (d.ranges && d.ranges.length) $("state").textContent = "Scanning " + d.ranges.join(", ");
+    });
+    on("result", function (r) {
+      if (!r || !r.ip) return;
+      rows.set(r.ip, r);
+      fresh.add(r.ip);
+      upCount();
+      queueRender();
+    });
+    on("progress", function (d) { setProgress(d.done, d.total); });
+    on("done", function (d) {
+      gotDone = true;
+      finished = true;
+      setProgress(d.scanned, d.scanned);
+      $("elapsed").textContent = fmtElapsed(d.elapsed_ms);
+      $("up").textContent = d.up;
+      stop("Done: " + d.up + " up of " + d.scanned);
+    });
+    on("error", function (d) {
+      gotDone = true;
+      showError(d.message || "Scan failed");
+      stop("Error");
+    });
+    src.onerror = function () {
+      if (gotDone || src !== es) return;
+      showError("Connection to the Sonar server was lost.");
+      stop("Disconnected");
+    };
+  }
+
+  $("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (running) { stop("Stopped"); finished = true; render(); } else start();
+  });
+  $("filter").addEventListener("input", queueRender);
+
+  function download(name, type, text) {
+    var url = URL.createObjectURL(new Blob([text], { type: type }));
+    var a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  function current() { return visibleRows(); }
+  $("expJson").addEventListener("click", function () {
+    download("sonar-results.json", "application/json", JSON.stringify(current(), null, 2) + "\n");
+  });
+  // CSV cells starting with = + - @ tab or CR are prefixed with an apostrophe to defuse spreadsheet formulas.
+  function csvCell(v) {
+    var s = v == null ? "" : String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  $("expCsv").addEventListener("click", function () {
+    var lines = ["ip,alive,rtt_ms,hostname,name_src,mac,vendor,ports,http_title"];
+    current().forEach(function (r) {
+      lines.push([r.ip, r.alive ? "true" : "false", r.alive ? (r.rtt_ns / 1e6).toFixed(2) : "",
+        r.hostname, r.name_src, r.mac, r.vendor, (r.ports || []).join(" "), r.http_title].map(csvCell).join(","));
+    });
+    download("sonar-results.csv", "text/csv", lines.join("\r\n") + "\r\n");
+  });
+
+  var params = new URLSearchParams(location.search);
+  if (/^(light|dark)$/.test(params.get("theme") || "")) document.documentElement.dataset.theme = params.get("theme");
+
+  function demo() {
+    var D = [
+      ["192.168.1.1", 1.2, "router.lan", "dns", "3C:84:6A:12:34:56", "TP-Link", [53, 80, 443], "TP-Link Archer AX55"],
+      ["192.168.1.20", 2.4, "nas.lan", "dns", "00:11:32:AB:CD:01", "Synology", [80, 443, 445], "Synology DiskStation"],
+      ["192.168.1.32", 3.1, "octopi.local", "mdns", "B8:27:EB:98:76:54", "Raspberry Pi", [22, 80], "OctoPrint"],
+      ["192.168.1.44", 1.8, "DESKTOP-7Q2K", "netbios", "A4:BB:6D:3E:5F:10", "Dell", [135, 139, 445, 3389], ""],
+      ["192.168.1.51", 4.6, "MacBook-Air.local", "mdns", "F0:18:98:4C:2D:77", "Apple", [22], ""],
+      ["192.168.1.63", 6.3, "Sonos-Living.local", "mdns", "5C:AA:FD:21:43:65", "Sonos", [80, 443], "Sonos Player"],
+      ["192.168.1.77", 5.2, "HP-LaserJet-M404", "mdns", "3C:52:82:5A:6B:7C", "HP", [80, 443, 9100], "HP LaserJet Pro M404dn"],
+      ["192.168.1.91", 9.8, "", "", "24:6F:28:B1:C2:D3", "Espressif", [80], "ESP32 Sensor Node"]
+    ];
+    D.forEach(function (d) {
+      rows.set(d[0], { ip: d[0], alive: true, alive_by: "arp", rtt_ns: d[1] * 1e6, hostname: d[2], name_src: d[3],
+        mac: d[4], vendor: d[5], ports: d[6], http_title: d[7] });
+    });
+    finished = true;
+    setProgress(254, 254);
+    $("up").textContent = D.length;
+    $("elapsed").textContent = "2.4s";
+    $("state").textContent = "Done: " + D.length + " up of 254";
+    $("targets").placeholder = "192.168.1.0/24";
+    render();
+  }
+
+  fetch("/api/info", { headers: { "X-Sonar-Token": TOKEN } }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.version) $("ver").textContent = params.get("demo") === "1" ? "v0.1.0" : d.version;
+    if (d.targets_default && d.targets_default.length) {
+      $("targets").placeholder = d.targets_default.join(", ");
+    }
+    if (d.ports_default && $("ports").value === "default") $("ports").value = d.ports_default;
+  }).catch(function () {}).then(function () {
+    if (params.get("demo") === "1") demo();
+    else if (params.get("scan") === "1" && !running) start();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
