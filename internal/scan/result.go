@@ -17,4 +17,8 @@ type Result struct {
 	Vendor    string        `json:"vendor,omitempty"`
 	Ports     []int         `json:"ports,omitempty"`
 	HTTPTitle string        `json:"http_title,omitempty"`
+
+	// nbMAC is the MAC reported by NetBIOS, used only when ARP/neighbour data
+	// gave none. Unexported, so encoding/json ignores it.
+	nbMAC string
 }

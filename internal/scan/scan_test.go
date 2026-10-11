@@ -2,10 +2,12 @@ package scan
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/netip"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,5 +235,87 @@ func TestAlivePorts(t *testing.T) {
 	}
 	if got := alivePorts(netip.MustParseAddr("10.9.9.9"), o); !slices.Equal(got, probe.AlivePorts) {
 		t.Errorf("remote host ports = %v, want %v", got, probe.AlivePorts)
+	}
+}
+
+func runOne(t *testing.T, ip string, probes []AliveProbe, enr []Enricher) Result {
+	t.Helper()
+	var got []Result
+	for r := range run(context.Background(), []netip.Addr{netip.MustParseAddr(ip)}, Options{}, probes, enr) {
+		got = append(got, r)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d results", len(got))
+	}
+	return got[0]
+}
+
+func TestVendorFromMAC(t *testing.T) {
+	probes := []AliveProbe{fakeProbe(time.Millisecond, Proof{Method: "arp", MAC: "B8:27:EB:12:34:56"}, true)}
+	for name, enr := range map[string][]Enricher{"no enrichers": nil, "enricher": {func(ctx context.Context, r *Result, o Options) {}}} {
+		r := runOne(t, "10.0.0.6", probes, enr)
+		if r.Vendor == "" {
+			t.Errorf("%s: vendor empty for %+v", name, r)
+		}
+	}
+}
+
+func TestNBMACFallbackOnly(t *testing.T) {
+	probes := []AliveProbe{fakeProbe(time.Millisecond, Proof{Method: "tcp"}, true)}
+	const arp, nb = "B8:27:EB:00:00:01", "BB:BB:BB:BB:BB:BB"
+	nbEnr := func(ctx context.Context, r *Result, o Options) { r.nbMAC = nb }
+	arpEnr := func(ctx context.Context, r *Result, o Options) {
+		time.Sleep(20 * time.Millisecond)
+		r.MAC = arp
+	}
+	for name, enr := range map[string][]Enricher{
+		"nb first": {nbEnr, arpEnr},
+		"nb last":  {arpEnr, nbEnr},
+	} {
+		if r := runOne(t, "10.0.0.7", probes, enr); r.MAC != arp {
+			t.Errorf("%s: MAC = %q, want %q", name, r.MAC, arp)
+		}
+	}
+	// Stage-1 ARP proof also beats nbMAC.
+	arpProbe := []AliveProbe{fakeProbe(time.Millisecond, Proof{Method: "arp", MAC: arp}, true)}
+	if r := runOne(t, "10.0.0.9", arpProbe, []Enricher{nbEnr}); r.MAC != arp {
+		t.Errorf("stage-1: MAC = %q, want %q", r.MAC, arp)
+	}
+	// With no other source nbMAC is used.
+	if r := runOne(t, "10.0.0.8", probes, []Enricher{nbEnr}); r.MAC != nb {
+		t.Errorf("nb only: MAC = %q, want %q", r.MAC, nb)
+	}
+}
+
+func TestVendorFollowsFinalMAC(t *testing.T) {
+	probes := []AliveProbe{fakeProbe(time.Millisecond, Proof{Method: "tcp"}, true)}
+	nbEnr := func(ctx context.Context, r *Result, o Options) { r.nbMAC = "B8:27:EB:12:34:56" }
+	r := runOne(t, "10.0.0.10", probes, []Enricher{nbEnr})
+	if r.MAC == "" || r.Vendor == "" {
+		t.Errorf("vendor not derived from nbMAC fallback: %+v", r)
+	}
+}
+
+func TestResultJSONOmitsNBMAC(t *testing.T) {
+	b, err := json.Marshal(Result{IP: netip.MustParseAddr("10.0.0.1"), nbMAC: "BB:BB:BB:BB:BB:BB"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(b)), "nbmac") || strings.Contains(string(b), "BB:BB") {
+		t.Fatalf("nbMAC leaked into JSON: %s", b)
+	}
+}
+
+func TestPickName(t *testing.T) {
+	tests := []struct{ dns, nb, name, src string }{
+		{"a.lan", "NB", "a.lan", "dns"},
+		{"a.lan", "", "a.lan", "dns"},
+		{"", "NB", "NB", "netbios"},
+		{"", "", "", ""},
+	}
+	for _, tc := range tests {
+		if name, src := pickName(tc.dns, tc.nb); name != tc.name || src != tc.src {
+			t.Errorf("pickName(%q, %q) = %q, %q; want %q, %q", tc.dns, tc.nb, name, src, tc.name, tc.src)
+		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Xoltox/sonar/internal/oui"
 	"github.com/Xoltox/sonar/internal/probe"
 	"github.com/Xoltox/sonar/internal/target"
 )
@@ -51,6 +52,7 @@ var aliveProbes = []AliveProbe{
 var enrichers = []Enricher{
 	portScan,
 	macLookup,
+	hostname,
 }
 
 func icmpAlive(ctx context.Context, addr netip.Addr, o Options) (Proof, bool) {
@@ -112,6 +114,36 @@ func macLookup(ctx context.Context, r *Result, o Options) {
 	if mac, ok := probe.ARP(ctx, r.IP, o.Timeout); ok {
 		r.MAC = mac
 	}
+}
+
+// pickName chooses the display name: reverse DNS beats NetBIOS.
+func pickName(dns, nb string) (name, src string) {
+	if dns != "" {
+		return dns, "dns"
+	}
+	if nb != "" {
+		return nb, "netbios"
+	}
+	return "", ""
+}
+
+// hostname resolves reverse DNS and NetBIOS in parallel. The NetBIOS MAC is
+// only recorded as a fallback (nbMAC); ARP/neighbour data always wins.
+func hostname(ctx context.Context, r *Result, o Options) {
+	var dns, nb, nbMAC string
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		dns = probe.ReverseDNS(ctx, r.IP, o.Timeout)
+	}()
+	go func() {
+		defer wg.Done()
+		nb, nbMAC = probe.NetBIOSName(ctx, r.IP, o.Timeout)
+	}()
+	wg.Wait()
+	r.Hostname, r.NameSrc = pickName(dns, nb)
+	r.nbMAC = nbMAC
 }
 
 func portScan(ctx context.Context, r *Result, o Options) {
@@ -178,9 +210,9 @@ func scanHost(ctx context.Context, addr netip.Addr, o Options, probes []AlivePro
 	var stage1 time.Duration
 	if debug {
 		defer func() {
-			fmt.Fprintf(os.Stderr, "sonar-debug %s alive=%v by=%s stage1=%v total=%v ports=%v mac=%q\n",
+			fmt.Fprintf(os.Stderr, "sonar-debug %s alive=%v by=%s stage1=%v total=%v ports=%v mac=%q name=%q/%s vendor=%q\n",
 				addr, r.Alive, r.AliveBy, stage1.Round(time.Millisecond),
-				time.Since(start).Round(time.Millisecond), r.Ports, r.MAC)
+				time.Since(start).Round(time.Millisecond), r.Ports, r.MAC, r.Hostname, r.NameSrc, r.Vendor)
 		}()
 	}
 
@@ -240,6 +272,7 @@ func scanHost(ctx context.Context, addr netip.Addr, o Options, probes []AlivePro
 	drain()
 	stage1 = time.Since(start)
 	if !r.Alive || ctx.Err() != nil {
+		finishMAC(&r)
 		return r
 	}
 
@@ -259,7 +292,19 @@ func scanHost(ctx context.Context, addr netip.Addr, o Options, probes []AlivePro
 		merge(&r, c)
 	}
 	drain()
+	finishMAC(&r)
 	return r
+}
+
+// finishMAC applies the NetBIOS fallback MAC and derives the vendor from the
+// final MAC. It is the only place Vendor is set.
+func finishMAC(r *Result) {
+	if r.MAC == "" {
+		r.MAC = r.nbMAC
+	}
+	if r.MAC != "" {
+		r.Vendor = oui.Lookup(r.MAC)
+	}
 }
 
 // merge copies non-zero enrichment fields of src into dst.
@@ -271,8 +316,8 @@ func merge(dst *Result, src Result) {
 	if src.MAC != "" {
 		dst.MAC = src.MAC
 	}
-	if src.Vendor != "" {
-		dst.Vendor = src.Vendor
+	if src.nbMAC != "" {
+		dst.nbMAC = src.nbMAC
 	}
 	if len(src.Ports) > 0 {
 		dst.Ports = src.Ports
